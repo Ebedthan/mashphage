@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+
+import argparse
+import datetime
+from distutils.spawn import find_executable
+import os
+import platform
+import re
+import subprocess
+import sys
+
+AUTHOR = "Anicet Ebou <anicet.ebou@gmail.com>"
+URL = "https://github.com/Ebedthan/mashphage.git"
+VERSION = "0.1.0"
+
+# Define start time----------------------------------------------------------
+startime = datetime.now()
+helptime = datetime.now().strftime("%a, %d %b %Y %H:%M:%S")
+
+# Define command-line arguments----------------------------------------------
+parser = argparse.ArgumentParser(
+    prog="mashphage",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    usage="mashphage [options] seqs.fa.gz",
+    epilog=f"Version:   {VERSION}\nLicence:   GPL-3\n"
+    + f"Homepage:  {URL}\nAuthor:    {AUTHOR}\nLast Run:  {helptime}.",
+)
+
+parser.add_argument("seqs", help="Specify input sequences fasta file")
+parser.add_argument(
+    "--cpus", type=int, default=1, help="Specify the number of threads"
+)
+parser.add_argument(
+    "--quiet", action="store_true", help="Decrease program verbosity"
+)
+parser.add_argument(
+    "--debug", action="store_true", help="Activate debug mode"
+)
+args = parser.parse_args()
+
+
+def main():
+    # Get current user name
+    try:
+        user = os.environ["USER"]
+    except KeyError:
+        user = "not telling me who you are"
+
+    # Start program ---------------------------------------------------------
+    msg("-----------------------------------------------")
+    msg("conodictor Copyright (C) 2021 Anicet Ebou")
+    msg("This program comes with ABSOLUTELY NO WARRANTY;")
+    msg("This is free software, and you are welcome to ")
+    msg("redistribute it under certain conditions.")
+    msg("-----------------------------------------------")
+    msg(f"This is mashphage {VERSION}")
+    msg(f"Written by {AUTHOR}")
+    msg(f"Available at {URL}")
+    msg(f"Localtime is {datetime.now().strftime('%H:%M:%S')}")
+    msg(f"You are {user}")
+    msg(f"Operating system is {platform.system()}")
+
+    # Verify presence of mash
+    if find_executable("mash") is not None:
+        msg("Found mash")
+    else:
+        print(
+            "Mash was not found on your system."
+            + " Please install it at https://github.com/Marbl/mash.git"
+        )
+
+    # Get version of mash
+    sub_mash = subprocess.run(["mash", "-h"], capture_output=True)
+    mash_match = re.findall(
+        r"Mash version \s+(\d+\.\d+)", sub_mash.stdout.decode("utf-8")
+    )
+    msg(f"Using mash version {mash_match[0]}")
+
+
+def msg(text):
+    """
+    msg produce nice message and info output on terminal.
+
+    :text: Message to print to STDOUT.
+    """
+
+    t = datetime.now().strftime("%H:%M:%S")
+    line = f"[{t}] {text}"
+    if not args.quiet:
+        print(line, file=sys.stderr)
+
+
+def exception_handler(
+    exception_type, exception, traceback, debug_hook=sys.excepthook
+):
+    """
+    exception_handler remove default debug info and traceback
+    from python output on command line. Use program --debug
+    option to re-enable default behaviour.
+    """
+
+    if args.debug:
+        debug_hook(exception_type, exception, traceback)
+    else:
+        msg(f"{exception_type.__name__}, {exception}")
+
+
+sys.excepthook = exception_handler
+
+if __name__ == "__main__":
+    main()
