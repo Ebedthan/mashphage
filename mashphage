@@ -12,6 +12,7 @@ import pyfastx
 import shutil
 import subprocess
 import sys
+import tempfile
 
 AUTHOR = "Anicet Ebou <anicet.ebou@gmail.com>"
 URL = "https://github.com/Ebedthan/mashphage.git"
@@ -75,7 +76,7 @@ def main():
     print("This is free software, and you are welcome to ")
     print("redistribute it under certain conditions.")
     print("-----------------------------------------------")
-    print(f"mashphage version {VERSION}")
+    print(f"mashphage version {VERSION}\n")
 
     # Handling number of cpus -----------------------------------------------
     cpus = args.cpus
@@ -88,7 +89,7 @@ def main():
     # Verify presence of mash -----------------------------------------------
     if find_executable("mash") is None:
         print(
-            "Mash was not found on your system."
+            "mashphage: error: Mash was not found on your system."
             + " Please install it at https://github.com/Marbl/mash.git"
         )
         sys.exit(1)
@@ -106,24 +107,22 @@ def main():
     # Build input sequence index for query ----------------------------------
     infax = pyfastx.Fasta(inpath)
     seqids = infax.keys()
-    try:
-        os.removedirs("tmpfa")
-    except OSError:
-        pass
 
     # Create tmp folder
-    os.mkdir(pathlib.Path("tmpfa"))
+    tmpdir = tempfile.TemporaryDirectory()
+    os.mkdir(pathlib.Path(tmpdir.name, "tmpfa"))
 
     for seqid in seqids:
-        with open(f"tmpfa/{seqid}", "w") as tfa:
-            with open("falist.txt", "a") as lf:
+        with open(pathlib.Path(tmpdir.name, "tmpfa", f"{seqid}"), "w") as tfa:
+            with open(pathlib.Path(tmpdir.name, "falist.txt"), "a") as lf:
                 tfa.write(f">{seqid}\n{infax[seqid]}\n")
-                lf.write(f"tmpfa/{seqid}\n")
+                lf.write(str(pathlib.Path(tmpdir.name, "tmpfa", f"{seqid}")))
+                lf.write("\n")
             lf.close()
         tfa.close()
 
     # Run mash -----------------------------------------------------
-    with open("mashdist.out", "w") as outfile:
+    with open(pathlib.Path(tmpdir.name, "mashdist.out"), "w") as outfile:
         subprocess.run(
             [
                 "mash",
@@ -132,7 +131,7 @@ def main():
                 "-p",
                 str(cpus),
                 pathlib.Path(dbdir, "reference.msh"),
-                "falist.txt",
+                pathlib.Path(tmpdir.name, "falist.txt"),
             ],
             stdout=outfile,
         )
@@ -140,7 +139,7 @@ def main():
     # Parsing result --------------------------------------------------------
     resdict = defaultdict(dict)
     sortres = {}
-    with open("mashdist.out") as mof:
+    with open(pathlib.Path(tmpdir.name, "mashdist.out")) as mof:
         rd = csv.reader(mof, delimiter="\t")
         for row in rd:
             resdict[row[1]][row[0]] = [row[2], row[3]]
@@ -151,7 +150,15 @@ def main():
         sortres[k] = {list(d.keys())[list(d.values()).index(minv)]: minv}
 
     # Writing output --------------------------------------------------------
+    # Output file handling
     outfile = args.out
+    if pathlib.Path(outfile.name).exists():
+        print(
+            "mashphage: error: selected output file already exist."
+            + " Please change it using --out option"
+        )
+        sys.exit(1)
+
     outfile.write("sequence_id\tpredicted_cluster\tmash_distance\tP-value\n")
     for key, value in sortres.items():
         for x, j in value.items():
@@ -161,24 +168,14 @@ def main():
                 + f"{j[0]}\t"  # mash distance
                 + f"{j[1]}\n"  # p-value
             )
+
     try:
         outfile.close()
     except ValueError:
         pass
 
     # Cleaning around -------------------------------------------------------
-    shutil.rmtree("tmpfa")
-    os.remove("falist.txt")
-    os.remove("mashdist.out")
     os.remove(pathlib.Path(f"{inpath}.fxi"))
-
-    endtime = datetime.now()
-    walltime = endtime - startime
-    print(f"Walltime used (hh:mm:ss.ms): {walltime}")
-    if len(seqids) % 2:
-        print("Nice to have you. Share, enjoy and come back!")
-    else:
-        print("Thanks you, come again.")
 
 
 def is_gz_file(fp):
