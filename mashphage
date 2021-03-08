@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+from collections import defaultdict
+import csv
 from datetime import datetime
 from distutils.spawn import find_executable
 import gzip
 import os
 import pathlib
-import platform
-import re
+import pyfastx
 import shutil
 import subprocess
 import sys
@@ -34,14 +35,11 @@ parser.add_argument(
     "--out",
     help="Specify output file",
     nargs="?",
-    type=argparse.FileType("w"),
+    type=argparse.FileType("a"),
     default=sys.stdout,
 )
 parser.add_argument(
     "--cpus", type=int, default=1, help="Specify the number of threads"
-)
-parser.add_argument(
-    "--quiet", action="store_true", help="Decrease program verbosity"
 )
 parser.add_argument(
     "--debug", action="store_true", help="Activate debug mode"
@@ -50,68 +48,137 @@ args = parser.parse_args()
 
 
 def main():
-    # Get current user name
+    # Handling db directory path specification-------------------------------
     try:
-        user = os.environ["USER"]
+        dbdir = os.environ["MASHPHDB"]
     except KeyError:
-        user = "not telling me who you are"
+        print(
+            "mashphage: error: Mash sketch reference file not "
+            + "found in $PATH.",
+            file=sys.stderr,
+        )
+        print(
+            "Please set MASHPHDB environment variable to the path "
+            + "where the file is stored.",
+            file=sys.stderr,
+        )
+        print(
+            "Visit https://github.com/Ebedthan/mashphage for more",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Start program ---------------------------------------------------------
-    msg("-----------------------------------------------")
-    msg("mashphage Copyright (C) 2021 Anicet Ebou")
-    msg("This program comes with ABSOLUTELY NO WARRANTY;")
-    msg("This is free software, and you are welcome to ")
-    msg("redistribute it under certain conditions.")
-    msg("-----------------------------------------------")
-    msg(f"This is mashphage {VERSION}")
-    msg(f"Written by {AUTHOR}")
-    msg(f"Available at {URL}")
-    msg(f"Localtime is {datetime.now().strftime('%H:%M:%S')}")
-    msg(f"You are {user}")
-    msg(f"Operating system is {platform.system()}")
+    print("-----------------------------------------------")
+    print("mashphage Copyright (C) 2021 Anicet Ebou")
+    print("This program comes with ABSOLUTELY NO WARRANTY;")
+    print("This is free software, and you are welcome to ")
+    print("redistribute it under certain conditions.")
+    print("-----------------------------------------------")
+    print(f"mashphage version {VERSION}")
 
-    # Verify presence of mash
-    if find_executable("mash") is not None:
-        msg("Found mash")
-    else:
+    # Handling number of cpus -----------------------------------------------
+    cpus = args.cpus
+
+    if args.cpus == 0:
+        cpus = os.cpu_count()
+    elif args.cpus > os.cpu_count():
+        cpus = os.cpu_count()
+
+    # Verify presence of mash -----------------------------------------------
+    if find_executable("mash") is None:
         print(
             "Mash was not found on your system."
             + " Please install it at https://github.com/Marbl/mash.git"
         )
         sys.exit(1)
 
-    # Get version of mash
-    sub_mash = subprocess.run(["mash", "-h"], capture_output=True)
-    mash_match = re.findall(
-        r"Mash version \s+(\d+\.\d+)", sub_mash.stdout.decode("utf-8")
-    )
-    msg(f"Using mash version {mash_match[0]}")
-
-    # Test if file is gzipped
+    # Test if file is gzipped -----------------------------------------------
     if is_gz_file(args.seqs):
-        msg("Your file is gzip compressed. Decompressing it.")
         with gzip.open(args.seqs, "r") as seqh:
             with open(pathlib.Path(args.seqs).stem, "wb") as seqo:
                 shutil.copyfileobj(seqh, seqo)
             seqo.close()
-        msg("Decompression done.")
         inpath = pathlib.Path(args.seqs).stem
     else:
         inpath = args.seqs
 
+    # Build input sequence index for query ----------------------------------
+    infax = pyfastx.Fasta(inpath)
+    seqids = infax.keys()
+    try:
+        os.removedirs("tmpfa")
+    except OSError:
+        pass
+
+    # Create tmp folder
+    os.mkdir(pathlib.Path("tmpfa"))
+
+    for seqid in seqids:
+        with open(f"tmpfa/{seqid}", "w") as tfa:
+            with open("falist.txt", "a") as lf:
+                tfa.write(f">{seqid}\n{infax[seqid]}\n")
+                lf.write(f"tmpfa/{seqid}\n")
+            lf.close()
+        tfa.close()
+
     # Run mash -----------------------------------------------------
-    msg("Running mash dist")
     with open("mashdist.out", "w") as outfile:
         subprocess.run(
             [
-                "mash dist",
+                "mash",
+                "dist",
+                "-l",
                 "-p",
-                str(args.cpus),
-                pathlib.Path(args.out, "reference.msh"),
-                inpath,
+                str(cpus),
+                pathlib.Path(dbdir, "reference.msh"),
+                "falist.txt",
             ],
             stdout=outfile,
         )
+
+    # Parsing result --------------------------------------------------------
+    resdict = defaultdict(dict)
+    sortres = {}
+    with open("mashdist.out") as mof:
+        rd = csv.reader(mof, delimiter="\t")
+        for row in rd:
+            resdict[row[1]][row[0]] = [row[2], row[3]]
+    mof.close()
+
+    for k, d in resdict.items():
+        minv = min((i for i in d.values()), key=lambda x: x[0])
+        sortres[k] = {list(d.keys())[list(d.values()).index(minv)]: minv}
+
+    # Writing output --------------------------------------------------------
+    outfile = args.out
+    outfile.write("sequence_id\tpredicted_cluster\tmash_distance\tP-value\n")
+    for key, value in sortres.items():
+        for x, j in value.items():
+            outfile.write(
+                f"{pathlib.Path(key).stem}\t"  # sequence id
+                + f"{x}\t"  # cluster
+                + f"{j[0]}\t"  # mash distance
+                + f"{j[1]}\n"  # p-value
+            )
+    try:
+        outfile.close()
+    except ValueError:
+        pass
+
+    # Cleaning around -------------------------------------------------------
+    shutil.rmtree("tmpfa")
+    os.remove("falist.txt")
+    os.remove("mashdist.out")
+    os.remove(pathlib.Path(f"{inpath}.fxi"))
+
+    endtime = datetime.now()
+    walltime = endtime - startime
+    print(f"Walltime used (hh:mm:ss.ms): {walltime}")
+    if len(seqids) % 2:
+        print("Nice to have you. Share, enjoy and come back!")
+    else:
+        print("Thanks you, come again.")
 
 
 def is_gz_file(fp):
@@ -123,19 +190,6 @@ def is_gz_file(fp):
 
     with open(fp, "rb") as test:
         return test.read(2) == b"\x1f\x8b"
-
-
-def msg(text):
-    """
-    msg produce nice message and info output on terminal.
-
-    :text: Message to print to STDOUT.
-    """
-
-    t = datetime.now().strftime("%H:%M:%S")
-    line = f"[{t}] {text}"
-    if not args.quiet:
-        print(line, file=sys.stderr)
 
 
 def exception_handler(
@@ -150,7 +204,7 @@ def exception_handler(
     if args.debug:
         debug_hook(exception_type, exception, traceback)
     else:
-        msg(f"{exception_type.__name__}, {exception}")
+        print(f"{exception_type.__name__}, {exception}")
 
 
 sys.excepthook = exception_handler
