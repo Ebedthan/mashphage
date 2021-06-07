@@ -16,7 +16,7 @@ import tempfile
 
 AUTHOR = "Anicet Ebou <anicet.ebou@gmail.com>"
 URL = "https://github.com/Ebedthan/mashphage.git"
-VERSION = "0.1.0"
+VERSION = "0.3.0"
 
 # Define start time----------------------------------------------------------
 startime = datetime.now()
@@ -142,6 +142,8 @@ def main():
         minv = min((i for i in d.values()), key=lambda x: x[0])
         sortres[k] = {list(d.keys())[list(d.values()).index(minv)]: minv}
 
+    print(sortres)
+
     # Writing output --------------------------------------------------------
     # Output file handling
     outfile = args.out
@@ -153,13 +155,14 @@ def main():
         sys.exit(1)
 
     outfile.write("sequence_id\tpredicted_cluster\tmash_distance\tP-value\n")
-    for key, value in sortres.items():
-        for x, j in value.items():
+    for key in sortres.keys():
+        for k, value in sortres[key].items():
             outfile.write(
                 f"{pathlib.Path(key).stem}\t"  # sequence id
-                + f"{x}\t"  # cluster
-                + f"{j[0]}\t"  # mash distance
-                + f"{j[1]}\n"  # p-value
+                + f"{k}\t"  # cluster
+                + f"{value[0]}\t"  # mash distance
+                + f"{(1 - float(value[0])) * 100}"  # estimated ANI
+                + f"{value[1]}\n"  # p-value
             )
 
     try:
