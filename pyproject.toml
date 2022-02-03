@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "mashphage"
 version = "0.1.0"
-description = "Rapidly assign actino-phage genome into known cluster"
+description = "Fast and accurate whole-genome clustering of (actino) bacteriophages"
 authors = ["Anicet Ebou <anicet.ebou@gmail.com>"]
 
 [tool.poetry.dependencies]
