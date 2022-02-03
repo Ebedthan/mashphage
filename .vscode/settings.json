@@ -1,0 +1,15 @@
+{
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": [
+        "--max-line-length=80"
+    ],
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=80"
+    ],
+    "editor.formatOnSave": true,
+    "python.linting.enabled": true,
+    "python.pythonPath": "/home/sinfo/.cache/pypoetry/virtualenvs/mashphage-GXRBUX6d-py3.8/bin/python3",
+    "git.ignoreLimitWarning": true,
+}
